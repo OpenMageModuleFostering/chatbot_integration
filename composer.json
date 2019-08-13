@@ -1,0 +1,16 @@
+{
+    "name": "OpenMageModuleFostering/Chatbot_Integration",
+    "type": "magento-module",
+    "license": "OSL",
+    "homepage": "",
+    "description": "Chatbot Integration for Telegram and Facebook Messenger.",
+    "authors": [
+    {
+        "name": "Pablo",
+        "email": "blopa@werules.com"
+    }
+],
+    "suggest": {
+        "magento-hackathon/magento-composer-installer": "*"
+    }
+}
