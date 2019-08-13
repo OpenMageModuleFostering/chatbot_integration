@@ -1,127 +1,179 @@
 <?php
-	// this is the main module, which contains all the data from the customer and make calls to the APIs handlers
-//	require_once("Api/Telegram/Handler.php");
-//	require_once("Api/Facebook/Handler.php");
-//	require_once("Api/Whatsapp/Handler.php");
-//	require_once("Api/WeChat/Handler.php");
-	require_once("Api/witAI/witAI.php");
+	include("Api/Telegram/Handler.php");
+	include("Api/Facebook/Handler.php");
+	//include("Api/Whatsapp/Handler.php");
+	//include("Api/WeChat/Handler.php");
+	include("Api/witAI/witAI.php");
 
 class Werules_Chatbot_Model_Chatdata extends Mage_Core_Model_Abstract
 	{
-		//APIs
-		protected $_apiType;
-		protected $_apiKey;
-		protected $_chatbotHelper;
+		// APIs
+		protected $_apiType = "";
+		protected $_tgBot = "telegram";
+		protected $_fbBot = "facebook";
+		protected $_wappBot = "whatsapp";
+		protected $_wechatBot = "wechat";
 
-		// WITAI
-		protected $_isWitAi = false;
-		protected $_witAi;
+		// CONVERSATION STATES
+		protected $_startState = 0;
+		protected $_listCategoriesState = 1;
+		protected $_listProductsState = 2;
+		protected $_searchState = 3;
+		protected $_loginState = 4;
+		protected $_listOrdersState = 5;
+		protected $_reorderState = 6;
+		protected $_add2CartState = 7;
+		protected $_checkoutState = 9;
+		protected $_trackOrderState = 10;
+		protected $_supportState = 11;
+		protected $_sendEmailState = 12;
+		protected $_clearCartState = 13;
+
+		// ADMIN STATES
+		protected $_replyToSupportMessageState = 14;
+
+		// COMMANDS
+		protected $_cmdList =
+		"
+			start,
+			list_cat,
+			search,
+			login,
+			list_orders,
+			reorder,
+			add2cart,
+			checkout,
+			clear_cart,
+			track_order,
+			support,
+			send_email,
+			cancel,
+			help,
+			about,
+			logout
+		";
+		protected $_startCmd = array();
+		protected $_listCategoriesCmd = array();
+		protected $_searchCmd = array();
+		protected $_loginCmd = array();
+		protected $_listOrdersCmd = array();
+		protected $_reorderCmd = array();
+		protected $_add2CartCmd = array();
+		protected $_checkoutCmd = array();
+		protected $_clearCartCmd = array();
+		protected $_trackOrderCmd = array();
+		protected $_supportCmd = array();
+		protected $_sendEmailCmd = array();
+		protected $_cancelCmd = array();
+		protected $_helpCmd = array();
+		protected $_aboutCmd = array();
+		protected $_logoutCmd = array();
+
+	// admin cmds
+//		protected $adminCmdList =
+//		"
+//			messagetoall,
+//			endsupport,
+//			blocksupport
+//		";
+		protected $_admSendMessage2AllCmd = "messagetoall";
+		protected $_admEndSupportCmd = "endsupport";
+		protected $_admBlockSupportCmd = "blocksupport";
+		protected $_admEnableSupportCmd = "enablesupport";
+
+		// REGEX
+		protected $_unallowedCharacters = "/[^A-Za-z0-9 _]/";
+		
+		// DEFAULT MESSAGES
+		protected $_errorMessage = "";
+		protected $_cancelMessage = "";
+		protected $_canceledMessage = "";
+		protected $_loginFirstMessage = "";
+		protected $_positiveMessages = array();
+
+		// URLS
+		public $_tgUrl = "https://t.me/";
+		public $_fbUrl = "https://m.me/";
+//		protected $_wappUrl = "";
+//		protected $_wechatUrl = "";
 
 		public function _construct()
 		{
 			//parent::_construct();
 			$this->_init('chatbot/chatdata'); // this is location of the resource file.
-			$this->_chatbotHelper = Mage::helper('werules_chatbot');
 		}
 
 		// GENERAL FUNCTIONS
 		public function requestHandler($action, $webhook) // handle request
 		{
+			$apiKey = $this->getApikey($action);
 			// handle webhook configuration
-			$chatbotHelper = $this->_chatbotHelper;
-			if (!empty($webhook) && $action == $chatbotHelper->_tgBot) // set telegram webhook
+			if ($webhook && $apiKey && $action == $this->_tgBot) // set telegram webhook
 			{
-				$mageHelper = Mage::helper('core');
-				$apiKey = Mage::getStoreConfig('chatbot_enable/telegram_config/telegram_api_key');
-				//$telegram = new Telegram($apiKey);
-				$telegram = Mage::getModel('chatbot/api_telegram_handler')->_telegram;
-				$customKey = Mage::getStoreConfig('chatbot_enable/general_config/your_custom_key');
-				//$webhookUrl = str_replace("http://", "https://", Mage::getUrl('*/*/*', array('_use_rewrite' => true, '_forced_secure' => true)));
-				// replace http by https, and remove all url parameters with strok
-				$webhookUrl = str_replace("http://", "https://", strtok(Mage::getUrl('chatbot/chatdata/' . $chatbotHelper->_tgBot, array('_forced_secure' => true)), '?') . "key" . DS . $customKey . DS);
-				try {
-					$telegram->setWebhook($webhookUrl);
+				try
+				{
+					$telegram = new Telegram($apiKey);
+					$webhook_url = Mage::getUrl('chatbot/chatdata/', array('_forced_secure' => true)) . $this->_tgBot;
+					$webhook_url = str_replace("http://", "https://", $webhook_url);
+					$telegram->setWebhook($webhook_url);
 				}
-				catch (Exception $e) {
-					return $mageHelper->__("Something went wrong, please try again.");
+				catch (Exception $e)
+				{
+					return Mage::helper('core')->__("Something went wrong, please try again.");
 				}
 
-				//return var_dump(array('url' => $webhookUrl));
-				$tgGetWebhook = "<a href='https://api.telegram.org/bot" . $apiKey . "/getWebhookInfo' target='_blank'>" . $mageHelper->__("here") . "</a>";
-				$tgSetWebhook = "<a href='https://api.telegram.org/bot" . $apiKey . "/setWebhook?url=" . $webhookUrl . "' target='_blank'>" . $mageHelper->__("here") . "</a>";
-				$message = $mageHelper->__("Webhook for Telegram configured.") .
-					$mageHelper->__("Webhook URL") . ": " .
-					$webhookUrl . "<br>" .
-					$mageHelper->__("Click %s to check that information on Telegram website. If a wrong URL is set, try reloading this page or click %s.", $tgGetWebhook, $tgSetWebhook)
-				;
-				return $message;
-			}
-			else if (!empty($webhook) && $action == $chatbotHelper->_fbBot) // set facebook webhook
-			{
-				$mageHelper = Mage::helper('core');
-				$customKey = Mage::getStoreConfig('chatbot_enable/general_config/your_custom_key');
-				// replace http by https, and remove all url parameters with strok
-				$webhookUrl = str_replace("http://", "https://", strtok(Mage::getUrl('chatbot/chatdata/' . $chatbotHelper->_fbBot, array('_forced_secure' => true)), '?') . "key" . DS . $customKey . DS);
-
-				$message = $mageHelper->__("To configure Facebook webhook access") .
-					" https://developers.facebook.com/apps/(FACEBOOK_APP_ID)/webhooks/ " .
-					$mageHelper->__("use your Custom Key (%s) as your Verify Token", $webhook) . " " .
-					$mageHelper->__("and set the webhook URL as") . " " . $webhookUrl
-				;
-				return $message;
+				return Mage::helper('core')->__("Webhook for Telegram configured.");
 			} // start to handle conversation
-			else if ($action == $chatbotHelper->_tgBot) // telegram api
+			else if ($action == $this->_tgBot && $apiKey) // telegram api
 			{
 				// all logic goes here
-				$handler = Mage::getModel('chatbot/api_telegram_handler');
-				return $handler->telegramHandler();
+				return Mage::getModel('chatbot/api_telegram_handler')->telegramHandler($apiKey);
 			}
-			else if ($action == $chatbotHelper->_fbBot) // facebook api
+			else if ($action == $this->_fbBot && $apiKey) // facebook api
 			{
 				// all logic goes here
-				$handler = Mage::getModel('chatbot/api_facebook_handler');
-				return $handler->facebookHandler();
+				return Mage::getModel('chatbot/api_facebook_handler')->facebookHandler($apiKey);
 			}
 			else
-				return json_encode(array("status" => "error")); // TODO
+				return "Nothing to see here"; // TODO
 		}
 
-		protected function respondSuccess()
+		protected function getApikey($apiType) // check if bot integration is enabled
 		{
-//			$chatbotHelper = $this->_chatbotHelper;
-//			if ($this->_apiType == $chatbotHelper->_tgBot)
-//			{
-//				$this->updateChatdata("telegram_processing_request", "0");
-//			}
-//			else if ($this->_apiType == $chatbotHelper->_fbBot)
-//			{
-//				$this->updateChatdata("facebook_processing_request", "0");
-//			}
-//			// TODO add other apis
-
-			http_response_code(200);
-			return json_encode(array("status" => "success"));
+			if ($apiType == $this->_tgBot) // telegram api
+			{
+				//$enabled = Mage::getStoreConfig('chatbot_enable/telegram_config/enable_bot');
+				$apikey = Mage::getStoreConfig('chatbot_enable/telegram_config/telegram_api_key');
+				//if ($enabled == 1 && $apikey) // is enabled and has API
+				if ($apikey) // has API
+					return $apikey;
+			}
+			else if ($apiType == $this->_fbBot)
+			{
+				//$enabled = Mage::getStoreConfig('chatbot_enable/facebook_config/enable_bot');
+				$apikey = Mage::getStoreConfig('chatbot_enable/facebook_config/facebook_api_key');
+				//if ($enabled == 1 && $apikey) // is enabled and has API
+				if ($apikey) // has API
+					return $apikey;
+			}
+			return null;
 		}
-		protected function sendEmail($text, $username)
+
+		protected function sendEmail($text)
 		{
 			$storeName = Mage::app()->getStore()->getName();
 			$storeEmail = Mage::getStoreConfig('trans_email/ident_general/email');// TODO
-			// helpers
-			$mageHelper = Mage::helper('core');
-			$chatbotHelper = $this->_chatbotHelper;
+			$magehelper = Mage::helper('core');
 
-			$url = $mageHelper->__("Not informed");
-			$customerEmail = $mageHelper->__("Not informed");
-			if ($username)
-				$customerName = $username;
-			else
-				$customerName = $mageHelper->__("Not informed");
+			$url = $magehelper->__("Not informed");
+			$customerEmail = $magehelper->__("Not informed");
+			$customerName = $magehelper->__("Not informed");
 
 			$mail = new Zend_Mail('UTF-8');
 
-			if ($this->_apiType == $chatbotHelper->_tgBot)
+			if ($this->_apiType == $this->_tgBot)
 			{
-				$url = $chatbotHelper->_tgUrl . $this->getTelegramChatId();
+				$url = $this->_tgUrl . $this->getTelegramChatId();
 				if ($this->getCustomerId())
 				{
 					$customer = Mage::getModel('customer/customer')->load((int)$this->getCustomerId());
@@ -133,20 +185,20 @@ class Werules_Chatbot_Model_Chatdata extends Mage_Core_Model_Abstract
 					}
 				}
 			}
-			else if ($this->_apiType == $chatbotHelper->_fbBot)
+			else if ($this->_apiType == $this->_fbBot)
 			{
 				// code here etc
 			}
 
 			$emailBody =
-				$mageHelper->__("Message from chatbot customer") . "<br><br>" .
-				$mageHelper->__("Customer name") . ": " .
+				$magehelper->__("Message from chatbot customer") . "<br><br>" .
+				$magehelper->__("Customer name") . ": " .
 				$customerName . "<br>" .
-				$mageHelper->__("Message") . ":<br>" .
+				$magehelper->__("Message") . ":<br>" .
 				$text . "<br><br>" .
-				$mageHelper->__("Contacts") . ":<br>" .
-				$mageHelper->__("Chatbot") . ": " . $url . "<br>" .
-				$mageHelper->__("Email") . ": " . $customerEmail . "<br>";
+				$magehelper->__("Contacts") . ":<br>" .
+				$magehelper->__("Chatbot") . ": " . $url . "<br>" .
+				$magehelper->__("Email") . ": " . $customerEmail . "<br>";
 
 			$mail->setBodyHtml($emailBody);
 			$mail->setFrom($storeEmail, $storeName);
@@ -229,70 +281,110 @@ class Werules_Chatbot_Model_Chatdata extends Mage_Core_Model_Abstract
 
 		protected function getCommandString($cmdId)
 		{
-			$chatbotHelper = $this->_chatbotHelper;
 			$rep = "";
-			$confPath = "";
-			if ($this->_apiType == $chatbotHelper->_tgBot)
+			if ($this->_apiType == $this->_tgBot)
 			{
 				$rep = "_";
-				$confPath = 'chatbot_enable/telegram_config/';
+				$confpath = 'chatbot_enable/telegram_config/';
 			}
-			else if ($this->_apiType == $chatbotHelper->_fbBot)
+			else if ($this->_apiType == $this->_fbBot)
 			{
 				$rep = " ";
-				$confPath = 'chatbot_enable/facebook_config/';
+				$confpath = 'chatbot_enable/facebook_config/';
 			}
+//			else if ($this->_apiType == $this->_wappBot)
+//				$confpath = 'chatbot_enable/whatsapp_config/';
 
-			$defaultCmds = explode(',', $chatbotHelper->_cmdList);
-			if (is_array($defaultCmds)) // should never fail
+			$config = Mage::getStoreConfig($confpath . 'enabled_commands');
+			$enabledCmds = explode(',', $config);
+			if (is_array($enabledCmds))
 			{
-				$cmdCode = "";
-				$alias = array();
-				$config = Mage::getStoreConfig($confPath . 'commands_list');
-				if (!empty($config))
+				if (in_array($cmdId, $enabledCmds))
 				{
-					$commands = unserialize($config);
-					if (is_array($commands))
+					$defaultCmds = explode(',', $this->_cmdList);
+					if (is_array($defaultCmds))
 					{
-						foreach($commands as $cmd)
+						$cmdCode = "";
+						$alias = array();
+						$config = Mage::getStoreConfig($confpath . 'commands_list');
+						if ($config)
 						{
-							if ($cmd['command_id'] == $cmdId && $cmd['enable_command'] == "1")
+							$commands = unserialize($config);
+							if (is_array($commands))
 							{
-								if (empty($cmd['command_code']))
+								foreach($commands as $cmd)
 								{
-									$cmdCode = $defaultCmds[$cmdId];
-									break;
+									if ($cmd['command_id'] == $cmdId)
+									{
+										$cmdCode = $cmd['command_code'];
+										$alias = array_map('strtolower', explode(',', $cmd['command_alias_list']));
+										break;
+									}
 								}
-
-								$cmdCode = $cmd['command_code'];
-								$alias = array_map('strtolower', explode(',', $cmd['command_alias_list']));
-								break;
+								if (empty($cmdCode)) // if no command found, return the default
+									$cmdCode = $defaultCmds[$cmdId];
 							}
+							else // if no command found, return the default
+								$cmdCode = $defaultCmds[$cmdId];
+						}
+						else // if no command found, return the default
+							$cmdCode = $defaultCmds[$cmdId];
+
+						$cmdCode = preg_replace( // remove all non-alphanumerics
+							$this->_unallowedCharacters,
+							'',
+							str_replace( // replace whitespace for underscore
+								' ',
+								$rep,
+								trim($cmdCode)
+							)
+						);
+
+						return array('command' => strtolower($cmdCode), 'alias' => $alias);
+					}
+				}
+			}
+			return array('command' => null, 'alias' => null);
+		}
+
+		protected function getCommandValue($text, $cmd)
+		{
+			if (strlen($text) > strlen($cmd))
+				return substr($text, strlen($cmd), strlen($text));
+			return null;
+		}
+
+		protected function checkCommand($text, $cmd)
+		{
+			if ($cmd['command'])
+			{
+				$t = strtolower($text);
+				if ($t == $cmd['command'])
+					return true;
+				else if ($cmd['alias'])
+				{
+					//$alias = explode(",", $cmd['alias']);
+					$alias = $cmd['alias'];
+					if (is_array($alias))
+					{
+						foreach ($alias as $al)
+						{
+							if (!empty($al))
+								if (strpos($t, $al) !== false)
+									return true;
 						}
 					}
-					else // if no command found, return the default
-						$cmdCode = $defaultCmds[$cmdId];
 				}
-				else // if no command found, return the default
-					$cmdCode = $defaultCmds[$cmdId];
-
-				if (empty($cmdCode)) // if no command enabled found, return null
-					return array('command' => null, 'alias' => null);
-
-				$cmdCode = preg_replace( // remove all non-alphanumerics
-					$chatbotHelper->_unallowedCharacters,
-					'',
-					str_replace( // replace whitespace for underscore
-						' ',
-						$rep,
-						trim($cmdCode)
-					)
-				);
-
-				return array('command' => strtolower($cmdCode), 'alias' => $alias);
 			}
 
-			return array('command' => null, 'alias' => null);
+			return false;
+		}
+
+		protected function checkCommandWithValue($text, $cmd)
+		{
+			if ($cmd)
+				return substr($text, 0, strlen($cmd)) == $cmd;
+			return false;
 		}
 
 		protected function clearCart()
@@ -327,17 +419,14 @@ class Werules_Chatbot_Model_Chatdata extends Mage_Core_Model_Abstract
 			return true;
 		}
 
-		public function updateChatdata($dataType, $state)
+		public function updateChatdata($datatype, $state)
 		{
 			try
 			{
 				$data = array(
-					$dataType => $state,
+					$datatype => $state,
 					"updated_at" => date('Y-m-d H:i:s')
 				); // data to be insert on database
-
-//				Mage::log("data -> " . var_export($data, true), null, 'updateChatdata.log');
-//				Mage::log("this -> " . var_export($this, true), null, 'updateChatdata.log');
 				$this->addData($data);
 				$this->save();
 			}
@@ -349,170 +438,161 @@ class Werules_Chatbot_Model_Chatdata extends Mage_Core_Model_Abstract
 			return true;
 		}
 
-		// TELEGRAM FUNCTIONS
-		public function foreignMessageToTelegramSupport($foreignChatId, $text, $apiName, $customerName)
+		protected function excerpt($text, $size)
 		{
-			//$chatdata = Mage::getModel('chatbot/chatdata');
-			$chatdata = $this;
-			$chatbotHelper = $this->_chatbotHelper;
-//			if ($apiName == $chatbotHelper->_fbBot && $chatId)
-//			{
-//				$chatdata->load($chatId, 'facebook_chat_id');
-//				if (is_null($chatdata->getFacebookChatId()))
-//				{ // should't happen
-//					$chatdata->updateChatdata("facebook_chat_id", $chatId);
-//				}
-//			}
-
-			//$chatdata->_apiType = $chatbotHelper->_tgBot;
-			//$telegram = $this->_telegram;
-			$telegram = Mage::getModel('chatbot/api_telegram_handler')->_telegram; // TODO
-			if (isset($telegram))
+			if (strlen($text) > $size)
 			{
-				$mageHelper = Mage::helper('core');
-				$supportgroup = Mage::getStoreConfig('chatbot_enable/telegram_config/telegram_support_group');
-				if (!empty($supportgroup))
-				{
-					try{
-						if ($supportgroup[0] == "g") // remove the 'g' from groupd id, and add '-'
-							$supportgroup = "-" . ltrim($supportgroup, "g");
-
-						if (!$customerName)
-							$customerName = $mageHelper->__("Not informed");
-
-						$message =
-							"#" . $foreignChatId . "\n" .
-							$mageHelper->__("Message via") . " " . $apiName . ":\n" .
-							$mageHelper->__("From") . ": " . $customerName . "\n" .
-							$text
-						;
-						$result = $telegram->postMessage($supportgroup, $message);
-						$mid = $result['result']['message_id'];
-						if (!empty($mid))
-						{
-							$chatdata->updateChatdata("last_support_message_id", $mid);
-							$chatdata->updateChatdata("last_support_chat", $apiName);
-						}
-					}
-					catch (Exception $e){
-						return false;
-					}
-
-					return true;
-				}
+				$text = substr($text, 0, $size);
+				$text = substr($text, 0, strrpos($text, " "));
+				$etc = " ...";
+				$text = $text . $etc;
 			}
+			return $text;
+		}
+
+		protected function getOrdersIdsFromCustomer()
+		{
+			$ids = array();
+			$orders = Mage::getResourceModel('sales/order_collection')
+				->addFieldToSelect('*')
+				->addFieldToFilter('customer_id', $this->getCustomerId()) // not a problem if customer dosen't exist
+				->setOrder('created_at', 'desc');
+			foreach ($orders as $_order)
+			{
+				array_push($ids, $_order->getId());
+			}
+			if ($ids)
+				return $ids;
+			return false;
+		}
+
+		protected function getProductIdsBySearch($searchstring)
+		{
+			// Code to Search Product by $searchstring and get Product IDs
+			$product_collection_ids = Mage::getResourceModel('catalog/product_collection')
+				->addAttributeToSelect('*')
+				->addAttributeToFilter('visibility', 4)
+				->addAttributeToFilter('type_id', 'simple')
+				->addAttributeToFilter(
+					array(
+						array('attribute' => 'sku', 'like' => '%' . $searchstring .'%'),
+						array('attribute' => 'name', 'like' => '%' . $searchstring .'%')
+					)
+				)
+				->getAllIds();
+
+			if (!empty($product_collection_ids))
+				return $product_collection_ids;
 
 			return false;
 		}
 
-		protected function listTelegramCommandsMessage()
+		protected function loadImageContent($productID)
 		{
-			$chatbotHelper = $this->_chatbotHelper;
-			$mageHelper = Mage::helper('core');
+			$imagepath = Mage::getModel('catalog/product')->load($productID)->getSmallImage();
+			if ($imagepath && $imagepath != "no_selection")
+			{
+				$absolutePath =
+					Mage::getBaseDir('media') .
+					DS . "catalog" . DS . "product" .
+					$imagepath;
 
-			$message = "\n\n" . $mageHelper->__("Command list") . ":\n";
-			if ($chatbotHelper->_listCategoriesCmd['command']) $message .= $chatbotHelper->_listCategoriesCmd['command'] . " - " . $mageHelper->__("List store categories.") . "\n";
-			if ($chatbotHelper->_searchCmd['command']) $message .= $chatbotHelper->_searchCmd['command'] . " - " . $mageHelper->__("Search for products.") . "\n";
-			if ($chatbotHelper->_loginCmd['command']) $message .= $chatbotHelper->_loginCmd['command'] . " - " . $mageHelper->__("Login into your account.") . "\n";
-			if ($chatbotHelper->_logoutCmd['command']) $message .= $chatbotHelper->_logoutCmd['command'] . " - " . $mageHelper->__("Logout from your account.") . "\n";
-			if ($chatbotHelper->_registerCmd['command']) $message .= $chatbotHelper->_registerCmd['command'] . " - " . $mageHelper->__("Create a new account.") . "\n";
-			if ($chatbotHelper->_listOrdersCmd['command']) $message .= $chatbotHelper->_listOrdersCmd['command'] . " - " . $mageHelper->__("List your personal orders.") . "\n";
-			//$message .= $chatbotHelper->_reorderCmd['command'] . " - " . $magehelper->__("Reorder a order.") . "\n";
-			//$message .= $chatbotHelper->_add2CartCmd['command'] . " - " . $magehelper->__("Add product to cart.") . "\n";
-			if ($chatbotHelper->_checkoutCmd['command']) $message .= $chatbotHelper->_checkoutCmd['command'] . " - " . $mageHelper->__("Checkout your order.") . "\n";
-			if ($chatbotHelper->_clearCartCmd['command']) $message .= $chatbotHelper->_clearCartCmd['command'] . " - " . $mageHelper->__("Clear your cart.") . "\n";
-			if ($chatbotHelper->_trackOrderCmd['command']) $message .= $chatbotHelper->_trackOrderCmd['command'] . " - " . $mageHelper->__("Track your order status.") . "\n";
-			if ($chatbotHelper->_supportCmd['command']) $message .= $chatbotHelper->_supportCmd['command'] . " - " . $mageHelper->__("Send message to support.") . "\n";
-			if ($chatbotHelper->_sendEmailCmd['command']) $message .= $chatbotHelper->_sendEmailCmd['command'] . " - " . $mageHelper->__("Send email.") . "\n";
-			//$message .= $chatbotHelper->_cancelCmd['command'] . " - " . $magehelper->__("Cancel.");
-			if ($chatbotHelper->_helpCmd['command']) $message .= $chatbotHelper->_helpCmd['command'] . " - " . $mageHelper->__("Get help.") . "\n";
-			if ($chatbotHelper->_aboutCmd['command']) $message .= $chatbotHelper->_aboutCmd['command'] . " - " . $mageHelper->__("About.") . "\n";
+				return curl_file_create($absolutePath, 'image/jpg');
+			}
+			return null;
+		}
+
+		// TELEGRAM FUNCTIONS
+		protected function validateTelegramCmd($cmd)
+		{
+			if ($cmd == "/")
+				return null;
+			return $cmd;
+		}
+
+		protected function prepareTelegramOrderMessages($orderID) // TODO add link to product name
+		{
+			$order = Mage::getModel('sales/order')->load($orderID);
+			if ($order->getId())
+			{
+				$message = Mage::helper('core')->__("Order") . " # " . $order->getIncrementId() . "\n\n";
+				$items = $order->getAllVisibleItems();
+				foreach($items as $item)
+				{
+					$message .= (int)$item->getQtyOrdered() . "x " .
+						$item->getName() . "\n" .
+						Mage::helper('core')->__("Price") . ": " . Mage::helper('core')->currency($item->getPrice(), true, false) . "\n\n";
+				}
+				$message .= Mage::helper('core')->__("Total") . ": " . Mage::helper('core')->currency($order->getGrandTotal(), true, false) . "\n" .
+					Mage::helper('core')->__("Zipcode") . ": " . $order->getShippingAddress()->getPostcode();
+				if ($this->_reorderCmd['command'])
+					$message .= "\n\n" . Mage::helper('core')->__("Reorder") . ": " . $this->_reorderCmd['command'] . $orderID;
+				return $message;
+			}
+			return null;
+		}
+
+		protected function prepareTelegramProdMessages($productID) // TODO add link to product name
+		{
+			$product = Mage::getModel('catalog/product')->load($productID);
+			if ($product->getId())
+			{
+				if ($product->getStockItem()->getIsInStock() > 0)
+				{
+					$message = $product->getName() . "\n" .
+						$this->excerpt($product->getShortDescription(), 60) . "\n" .
+						Mage::helper('core')->__("Add to cart") . ": " . $this->_add2CartCmd['command'] . $product->getId();
+					return $message;
+				}
+			}
+			return null;
+		}
+
+		protected function prepareFacebookProdMessages($productID) // TODO add link to product name
+		{
+			$product = Mage::getModel('catalog/product')->load($productID);
+			if ($product->getId())
+			{
+				if ($product->getStockItem()->getIsInStock() > 0)
+				{
+					$message = $product->getName() . "\n" .
+						$this->excerpt($product->getShortDescription(), 60);
+					return $message;
+				}
+			}
+			return null;
+		}
+
+	protected function prepareFacebookOrderMessages($orderID) // TODO add link to product name
+	{
+		$order = Mage::getModel('sales/order')->load($orderID);
+		if ($order->getId())
+		{
+			$message = Mage::helper('core')->__("Order") . " # " . $order->getIncrementId() . "\n\n";
+			$items = $order->getAllVisibleItems();
+			foreach($items as $item)
+			{
+				$message .= (int)$item->getQtyOrdered() . "x " .
+					$item->getName() . "\n" .
+					Mage::helper('core')->__("Price") . ": " . Mage::helper('core')->currency($item->getPrice(), true, false) . "\n\n";
+			}
+			$message .= Mage::helper('core')->__("Total") . ": " . Mage::helper('core')->currency($order->getGrandTotal(), true, false) . "\n" .
+				Mage::helper('core')->__("Zipcode") . ": " . $order->getShippingAddress()->getPostcode();
 
 			return $message;
 		}
+		return null;
+	}
 
-		// FACEBOOK FUNCTIONS
-		protected function listFacebookCommandsMessage()
-		{
-			$chatbotHelper = $this->_chatbotHelper;
-			$mageHelper = Mage::helper('core');
+//		// WHATSAPP FUNCTIONS
+//		public function whatsappHandler($apiKey)
+//		{
+//
+//		}
 
-			$message = "\n\n" . $mageHelper->__("Command list") . ":\n";
-			$replies = array(); // quick replies limit is 10 options
-			$content = array();
-			// some commands are commented because of the 10 limit from Facebook
-			// just getting the command string, not checking the command
-			if ($chatbotHelper->_listCategoriesCmd['command']) // 1
-			{
-				array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_listCategoriesCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_listCategoriesCmd['command'])));
-				$message .= '"' . $chatbotHelper->_listCategoriesCmd['command'] . '"' . " - " . $mageHelper->__("List store categories.") . "\n";
-			}
-			if ($chatbotHelper->_searchCmd['command']) // 2
-			{
-				array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_searchCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_searchCmd['command'])));
-				$message .= '"' . $chatbotHelper->_searchCmd['command'] . '"' . " - " . $mageHelper->__("Search for products.") . "\n";
-			}
-			if ($chatbotHelper->_loginCmd['command']) // 3
-			{
-				array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_loginCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_loginCmd['command'])));
-				$message .= '"' . $chatbotHelper->_loginCmd['command'] . '"' . " - " . $mageHelper->__("Login into your account.") . "\n";
-			}
-			if ($chatbotHelper->_logoutCmd['command']) // 4
-			{
-				//array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_logoutCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_loginCmd['command'])));
-				$message .= '"' . $chatbotHelper->_logoutCmd['command'] . '"' . " - " . $mageHelper->__("Logout from your account.") . "\n";
-			}
-			if ($chatbotHelper->_registerCmd['command']) // 5
-			{
-				array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_registerCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_registerCmd['command'])));
-				$message .= '"' . $chatbotHelper->_registerCmd['command'] . '"' . " - " . $mageHelper->__("Create a new account.") . "\n";
-			}
-			if ($chatbotHelper->_listOrdersCmd['command']) // 6
-			{
-				array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_listOrdersCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_listOrdersCmd['command'])));
-				$message .= '"' . $chatbotHelper->_listOrdersCmd['command'] . '"' . " - " . $mageHelper->__("List your personal orders.") . "\n";
-			}
-			//$message .= '"' . $chatbotHelper->_reorderCmd['command'] . '"' . " - " . $magehelper->__("Reorder a order.") . "\n";
-			//$message .= '"' . $chatbotHelper->_add2CartCmd['command'] . '"' . " - " . $magehelper->__("Add product to cart.") . "\n";
-			if ($chatbotHelper->_checkoutCmd['command']) // 7
-			{
-				//array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_checkoutCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_checkoutCmd['command'])));
-				$message .= '"' . $chatbotHelper->_checkoutCmd['command'] . '"' . " - " . $mageHelper->__("Checkout your order.") . "\n";
-			}
-			if ($chatbotHelper->_clearCartCmd['command']) // 8
-			{
-				array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_clearCartCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_clearCartCmd['command'])));
-				$message .= '"' . $chatbotHelper->_clearCartCmd['command'] . '"' . " - " . $mageHelper->__("Clear your cart.") . "\n";
-			}
-			if ($chatbotHelper->_trackOrderCmd['command']) // 9
-			{
-				array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_trackOrderCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_trackOrderCmd['command'])));
-				$message .= '"' . $chatbotHelper->_trackOrderCmd['command'] . '"' . " - " . $mageHelper->__("Track your order status.") . "\n";
-			}
-			if ($chatbotHelper->_supportCmd['command']) // 10
-			{
-				array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_supportCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_supportCmd['command'])));
-				$message .= '"' . $chatbotHelper->_supportCmd['command'] . '"' . " - " . $mageHelper->__("Send message to support.") . "\n";
-			}
-			if ($chatbotHelper->_sendEmailCmd['command']) // 11
-			{
-				array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_sendEmailCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_sendEmailCmd['command'])));
-				$message .= '"' . $chatbotHelper->_sendEmailCmd['command'] . '"' . " - " . $mageHelper->__("Send email.") . "\n";
-			}
-			//$message .= '"' . $chatbotHelper->_cancelCmd['command'] . '"' . " - " . $magehelper->__("Cancel.");
-			if ($chatbotHelper->_aboutCmd['command']) // 12
-			{
-				array_push($replies, array('content_type' => 'text', 'title' => $chatbotHelper->_aboutCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_aboutCmd['command'])));
-				$message .= '"' . $chatbotHelper->_aboutCmd['command'] . '"' . " - " . $mageHelper->__("About.") . "\n";
-			}
-			if ($chatbotHelper->_helpCmd['command']) // 13
-			{
-				//array_push($replies, array('content_type' => 'text', 'title' => $this->_helpCmd['command'], 'payload' => str_replace(' ', '_', $chatbotHelper->_helpCmd['command'])));
-				$message .= '"' . $chatbotHelper->_helpCmd['command'] . '"' . " - " . $mageHelper->__("Get help.") . "\n";
-			}
-
-			array_push($content, $message); // $content[0] -> $message
-			array_push($content, $replies); // $content[1] -> $replies
-			return $content;
-		}
+		// WECHAT FUNCTIONS (maybe)
+//		public function wechatHandler($apiKey)
+//		{
+//
+//		}
 	}

@@ -2,7 +2,7 @@
 <config>
 	<modules>
 		<Werules_Chatbot>
-			<version>0.0.15</version>
+			<version>0.0.5</version>
 		</Werules_Chatbot>
 	</modules>
 	<frontend>
@@ -81,13 +81,6 @@
 		</resources>
 	</global>
 	<adminhtml>
-		<layout>
-			<updates>
-				<chatbot_enable>
-					<file>werules_chatbot.xml</file>
-				</chatbot_enable>
-			</updates>
-		</layout>
 		<acl>
 			<resources>
 				<admin>

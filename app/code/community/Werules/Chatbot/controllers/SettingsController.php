@@ -1,6 +1,4 @@
 <?php
-// settings controller, used to save all data from customer configurations
-// and also "links" a chatbot to the customer in the function loginFromChatbot
 class Werules_Chatbot_SettingsController extends Mage_Core_Controller_Front_Action {
 	public function preDispatch() // function that makes the settings page only available when the user is logged in
 	{
@@ -23,28 +21,21 @@ class Werules_Chatbot_SettingsController extends Mage_Core_Controller_Front_Acti
 
 	public function saveAction()
 	{
-		$mageHelper = Mage::helper('core');
+		$magehelper = Mage::helper('core');
 		$postData = $this->getRequest()->getPost(); // get all post data
 		if ($postData)
 		{
-			$rand = str_shuffle("11e09rg009UUu89FSwe9yGRE4h"); // TODO
+			$rand = str_shuffle("11e09rg009UUu89FSwe9yGRE4h");
 			$clientid = Mage::getSingleton('customer/session')->getCustomer()->getId(); // get customer id
 			$chatdata = Mage::getModel('chatbot/chatdata')->load($clientid, 'customer_id'); // load profile info from customer id
 			try
 			{
 				$data = array(
 					"enable_telegram" => ((isset($postData['enable_telegram'])) ? 1 : 0),
-					"enable_promotional_messages" => ((isset($postData['enable_promotional_messages'])) ? 1 : 0),
 					"enable_facebook" => ((isset($postData['enable_facebook'])) ? 1 : 0)
 					//"enable_whatsapp" => ((isset($postData['enable_whatsapp'])) ? 1 : 0),
 					//"enable_wechat" => ((isset($postData['enable_wechat'])) ? 1 : 0)
 				);
-				// setting data if is the first time
-				if (!isset($data["created_at"]))
-				{
-					$data["created_at"] = date('Y-m-d H:i:s');
-				}
-
 				if (!$chatdata->getCustomerId()) // attach class to customer id
 				{
 					$data["hash_key"] = substr(md5(uniqid(str_shuffle($rand), true)), 0, 150); // TODO
@@ -53,11 +44,11 @@ class Werules_Chatbot_SettingsController extends Mage_Core_Controller_Front_Acti
 				$chatdata->addData($data);
 				$chatdata->save();
 
-				Mage::getSingleton('customer/session')->addSuccess($mageHelper->__("Chatbot settings saved successfully.")); // throw success message to the html page
+				Mage::getSingleton('customer/session')->addSuccess($magehelper->__("Chatbot settings saved successfully.")); // throw success message to the html page
 			}
 			catch (Exception $e)
 			{
-				Mage::getSingleton('customer/session')->addError($mageHelper->__("Something went wrong, please try again.")); // throw error message to the html page
+				Mage::getSingleton('customer/session')->addError($magehelper->__("Something went wrong, please try again.")); // throw error message to the html page
 			}
 		}
 		$this->_redirect('chatbot/settings/index'); // redirect customer to settings page
@@ -66,18 +57,17 @@ class Werules_Chatbot_SettingsController extends Mage_Core_Controller_Front_Acti
 	private function requestHandler()
 	{
 		$hash = Mage::app()->getRequest()->getParam('hash');
-		if ($hash) // if is receiving a hash as URL parameter, we need to link the customer to a chatbot
+		if ($hash)
 			$this->loginFromChatbot($hash);
 	}
 
-	// function that links/login a customer to a chatbot
 	private function loginFromChatbot($hash)
 	{
 		$success = false;
 		$error = false;
 		$logged = true;
 		$data = array();
-		$mageHelper = Mage::helper('core');
+		$magehelper = Mage::helper('core');
 		$chatdataHash = Mage::getModel('chatbot/chatdata')->load($hash, 'hash_key');
 		if ($chatdataHash->getIsLogged() == "0")
 		{
@@ -88,8 +78,6 @@ class Werules_Chatbot_SettingsController extends Mage_Core_Controller_Front_Acti
 			{
 				try
 				{
-					// we'll get all chatdata information from the database and check if this customer is already logged in a chatbot
-					// then we merge all his data to a single chatdata data on the database
 					while ($chatdata->getCustomerId()) // gather all data from all chatdata models
 					{
 						if ($chatdata->getTelegramChatId() && $chatdata->getFacebookChatId() && $chatdata->getWhatsappChatId() && $chatdata->getWechatChatId())
@@ -120,9 +108,6 @@ class Werules_Chatbot_SettingsController extends Mage_Core_Controller_Front_Acti
 						}
 						if (!isset($data["created_at"]))
 							$data["created_at"] = $chatdata->getCreatedAt();
-						if (!isset($data["enable_promotional_messages"]))
-							$data["enable_promotional_messages"] = $chatdata->getEnablePromotionalMessages();
-
 						$chatdata->delete();
 						$chatdata = Mage::getModel('chatbot/chatdata')->load($customerid, 'customer_id'); // reload
 					}
@@ -172,10 +157,10 @@ class Werules_Chatbot_SettingsController extends Mage_Core_Controller_Front_Acti
 		}
 		// messages
 		if ($success)
-			Mage::getSingleton('customer/session')->addSuccess($mageHelper->__("Your account is now attached with our chatbot."));
+			Mage::getSingleton('customer/session')->addSuccess($magehelper->__("Your account is now attached with our chatbot."));
 		else if ($error)
-			Mage::getSingleton('customer/session')->addError($mageHelper->__("Something went wrong, please try again."));
+			Mage::getSingleton('customer/session')->addError($magehelper->__("Something went wrong, please try again."));
 		else if ($logged)
-			Mage::getSingleton('customer/session')->addNotice($mageHelper->__("You're already logged."));
+			Mage::getSingleton('customer/session')->addNotice($magehelper->__("You're already logged."));
 	}
 }
